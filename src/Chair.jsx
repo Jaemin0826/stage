@@ -69,8 +69,16 @@ function Chair({ center = [0, 0, 0], speed = 1 }) {
   return (
     <group ref={groupRef} position={center}>
       <Model url={asset("Stage_LeftChair.glb")} position={[0, 0, 0]} metallic />
-      <Model url={asset("Stage_CenterChair.glb")} position={[0, 0, 0]} metallic />
-      <Model url={asset("Stage_RightChair.glb")} position={[0, 0, 0]} metallic />
+      <Model
+        url={asset("Stage_CenterChair.glb")}
+        position={[0, 0, 0]}
+        metallic
+      />
+      <Model
+        url={asset("Stage_RightChair.glb")}
+        position={[0, 0, 0]}
+        metallic
+      />
       <Model url={asset("Stage_Spin.glb")} position={[0, 0, 0]} metallic />
     </group>
   );

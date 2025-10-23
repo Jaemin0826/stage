@@ -4,10 +4,8 @@ import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import gsap from "gsap";
 import {
   OrbitControls,
-  Environment,
   Text,
   MeshReflectorMaterial,
-  ContactShadows,
   GradientTexture,
 } from "@react-three/drei";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
@@ -26,7 +24,12 @@ import Chair from "./Chair.jsx";
 import { moveCamera } from "./cameraUtils";
 
 // 카메라 컨트롤러: ref 연결 및 최초 애니메이션
-function CameraController({ cameraRef, target = [0, 0, 0], play = false }) {
+function CameraController({
+  cameraRef,
+  target = [0, 0, 0],
+  play = false,
+  onDone,
+}) {
   const { camera } = useThree();
   const initialTargetRef = useRef(target);
   const hasRunRef = useRef(false);
@@ -49,9 +52,12 @@ function CameraController({ cameraRef, target = [0, 0, 0], play = false }) {
       onUpdate: () => {
         cameraRef.current.lookAt(...initialTargetRef.current);
       },
+      onComplete: () => {
+        hasRunRef.current = true;
+        if (typeof onDone === "function") onDone();
+      },
     });
-    hasRunRef.current = true;
-  }, [cameraRef, play]);
+  }, [cameraRef, play, onDone]);
   return null;
 }
 
@@ -297,7 +303,7 @@ const LeftGroup = styled.div`
 `;
 
 const RightGroup = styled.div`
-  display: flex;                    
+  display: flex;
   align-items: center;
   gap: 16px;
   flex: 1;
@@ -337,6 +343,38 @@ const RightTag = styled.span`
   font-weight: 600;
   letter-spacing: 0.02em;
   font-size: 14px;
+`;
+
+// ===== Left Titles (Seat / Module / Base) =====
+const LeftTitles = styled.div`
+  position: absolute;
+  top: 88px; /* 헤더(64px) 아래 여백 */
+  left: clamp(16px, 4vw, 56px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(4px, 1.2vw, 10px);
+  z-index: 8;
+  pointer-events: none; /* 컨테이너는 통과, 버튼만 클릭 */
+`;
+
+const LeftTitleButton = styled.button`
+  font-family: Paperlogy;
+  all: unset;
+  cursor: pointer;
+  color: #ffffff;
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: 0.01em;
+  font-size: clamp(24px, 5vw, 64px);
+  opacity: ${(p) => (p.$active ? 1 : 0.2)};
+  filter: ${(p) =>
+    p.$active ? "drop-shadow(0 0 10px rgba(255,255,255,0.25))" : "none"};
+  transition: opacity 0.18s ease, transform 0.18s ease, filter 0.18s ease;
+  pointer-events: auto;
+  &:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
 `;
 
 // ===== Focus Info Panel (reusable per focused item) =====
@@ -529,15 +567,28 @@ function App() {
   const CHAIR_SPEED = 0.1;
   const [followChair, setFollowChair] = useState(false);
   const FOCUS_DUR = 1.4;
+  // 의자 포커스 시 카메라와 오빗 팔로워가 동일하게 바라볼 타겟(약간의 오프셋으로 pole 회피)
+  const CHAIR_TARGET = useMemo(() => [0, 1, 0.08], []);
+  // 메인(초기 구도) 포커스용 위치/타겟: 초기 카메라 무빙 도착점과 동일하게 맞춤
+  const MAIN_TO = useMemo(() => [0, 1, -7], []);
+  const MAIN_LOOK = lookAtTarget;
 
   // 포커스 이동 헬퍼 (id별 카메라 포지션/타겟 및 chair 오빗 제어 통합)
   const focusById = useMemo(
     () => ({
+      main: () => {
+        setFocusedId("main");
+        if (orbitDelayRef.current) orbitDelayRef.current.kill();
+        setFollowChair(false);
+        focusCamera(MAIN_TO, MAIN_LOOK, FOCUS_DUR);
+      },
       chair: () => {
         setFocusedId("chair");
-        focusCamera([1, 4, 1], [0.2, 1, 0.2], FOCUS_DUR);
+        // 포커스 트윈과 오빗 팔로워가 동일 타겟을 사용하도록 통일
+        focusCamera([1, 4, 1], CHAIR_TARGET, FOCUS_DUR);
         if (orbitDelayRef.current) orbitDelayRef.current.kill();
-        orbitDelayRef.current = gsap.delayedCall(FOCUS_DUR, () =>
+        // 컨트롤 재활성화 시점과 맞물려 미세 점프 방지용으로 소폭 지연
+        orbitDelayRef.current = gsap.delayedCall(FOCUS_DUR + 0.03, () =>
           setFollowChair(true)
         );
       },
@@ -554,12 +605,14 @@ function App() {
         focusCamera([-3, 0, -2.8], [0, 0, 0], FOCUS_DUR);
       },
     }),
-    [FOCUS_DUR]
+    [FOCUS_DUR, CHAIR_TARGET, MAIN_TO, MAIN_LOOK]
   );
 
-  const order = ["wheel", "shell", "chair"];
+  // 화살표 순서를 왼쪽 타이틀(위→아래) 순서와 동일하게 유지
+  // LeftTitles: Main → Seat(chair) → Module(shell) → Base(wheel)
+  const order = ["main", "chair", "shell", "wheel"];
   const goNextFocus = () => {
-    if (!focusedId) return focusById.chair();
+    if (!focusedId) return focusById.main();
     const idx = order.indexOf(focusedId);
     const next = order[(idx + 1) % order.length];
     focusById[next]();
@@ -630,18 +683,24 @@ function App() {
   // 카메라 포커스 헬퍼: 목적지/포커스와 함께 부드럽게 이동
   const focusCamera = (to, lookAt, duration = 1.5) => {
     if (!cameraRef.current) return;
-    moveCamera(cameraRef, to, lookAt, duration);
-    if (controlsRef.current) {
-      controlsRef.current.target.set(lookAt[0], lookAt[1], lookAt[2]);
-      controlsRef.current.update();
-      // 애니메이션 완료 시점에 한 번 더 동기화
-      gsap.delayedCall(duration, () => {
-        if (controlsRef.current) {
-          controlsRef.current.target.set(lookAt[0], lookAt[1], lookAt[2]);
-          controlsRef.current.update();
-        }
-      });
+    // 기존 진행 중인 카메라 트윈이 있으면 중단
+    gsap.killTweensOf(cameraRef.current.position);
+    const controls = controlsRef.current;
+    // 트윈 중에는 OrbitControls의 내부 업데이트가 개입하지 않도록 비활성화
+    if (controls) {
+      controls.enabled = false;
+      controls.target.set(lookAt[0], lookAt[1], lookAt[2]);
     }
+    // 카메라 포지션 트윈 (onUpdate에서 lookAt 유지)
+    moveCamera(cameraRef, to, lookAt, duration);
+    // 트윈 종료 직후, 타겟/업데이트를 마지막으로 한 번 동기화한 뒤 컨트롤 재활성화
+    gsap.delayedCall(duration + 0.02, () => {
+      if (controlsRef.current) {
+        controlsRef.current.target.set(lookAt[0], lookAt[1], lookAt[2]);
+        controlsRef.current.update();
+        controlsRef.current.enabled = true;
+      }
+    });
   };
 
   // shell 전용 카메라 포커스 위치 (필요시 조정)
@@ -725,16 +784,17 @@ function App() {
     return () => clearTimeout(id);
   }, [startCam, lookAtTarget]);
 
-  // 7초간 사용자 상호작용(키보드/마우스)이 없으면 인트로로 복귀하는 타이머
+  // 사용자 상호작용이 10초간 없으면 페이지를 새로고침하는 타이머 (인트로 상태에서는 동작하지 않음)
   useEffect(() => {
     let idleTimer;
-    const RESET_MS = 7000;
+    const RESET_MS = 10000;
     const resetTimer = () => {
       if (idleTimer) clearTimeout(idleTimer);
       // 인트로가 이미 보이는 상태면 타이머 불필요
       if (introActive) return;
       idleTimer = setTimeout(() => {
-        returnToIntro();
+        // 10초간 무입력 시 하드 리프레시로 초기 상태 복원
+        window.location.reload();
       }, RESET_MS);
     };
 
@@ -770,11 +830,15 @@ function App() {
           cameraRef={cameraRef}
           target={lookAtTarget}
           play={startCam}
+          onDone={() => setFocusedId("main")}
         />
         <Selection>
           <OrbitControls
             ref={controlsRef}
-            enablePan={true}
+            // 사용자 자유 시점 이동 비활성화
+            enablePan={false}
+            enableRotate={false}
+            enableZoom={false}
             mouseButtons={{ LEFT: 0, MIDDLE: 2, RIGHT: 2 }}
             // target은 ref로 직접 업데이트
           />
@@ -782,16 +846,16 @@ function App() {
           <CameraOrbitFollower
             active={followChair && focusedId === "chair"}
             controlsRef={controlsRef}
-            target={[0, 1, 0.08]}
+            target={CHAIR_TARGET}
             speed={-CHAIR_SPEED}
           />
           {/* 전체적으로 부드럽게 밝혀주는 보조 광원들 */}
           <hemisphereLight
             color="#777777"
             groundColor="#111111"
-            intensity={0.45}
+            intensity={1}
           />
-          <ambientLight intensity={0.15} />
+          <ambientLight intensity={1} />
           {/* 상단 스포트라이트로 바닥 하이라이트 */}
 
           <spotLight
@@ -910,15 +974,21 @@ function App() {
             <group rotation={[0, Math.PI, 0]}>
               <mesh position={[0, 1.2, 0]}>
                 <boxGeometry args={[12, 3.2, 0.12]} />
-                {/* 비비드한 전광판: 톤매핑 제외한 Basic 머티리얼 + 그라디언트 맵 */}
-                <meshBasicMaterial toneMapped={false} side={THREE.DoubleSide}>
+                {/* 물리기반(PBR) 오렌지 패널: 그라디언트를 컬러 맵으로 사용 */}
+                <meshPhysicalMaterial
+                  metalness={0}
+                  roughness={0.5}
+                  clearcoat={0.02}
+                  clearcoatRoughness={0.4}
+                  side={THREE.DoubleSide}
+                >
                   <GradientTexture
                     attach="map"
                     stops={[0, 0.55, 1]}
-                    colors={["#1a0d0a", "#a6351b", "#ff5b21"]}
+                    colors={["#1a0d0a", "#7a2a16", "#ff4b1c"]}
                     size={1024}
                   />
-                </meshBasicMaterial>
+                </meshPhysicalMaterial>
               </mesh>
               {/* 패널 하단 라인 하이라이트용 얇은 면광원 (앞쪽, 약하게) */}
               <rectAreaLight
@@ -988,28 +1058,68 @@ function App() {
           </EffectComposer>
         </Selection>
       </Canvas>
-      {/* 포커스된 항목용 정보 패널 (재사용 가능) */}
-
-      {/* 바닥 고정 도크: shell 포커스 시 */}
-      {focusedId && dockContent[focusedId] && (
+      {/* 바닥 고정 도크: 포커스 컨텐츠가 있으면 표시, 없더라도 화살표는 유지(main 등) */}
+      {!introActive && (
         <BottomDock>
           <DockInner>
-            <DockLeft>
-              <DockTitleRow>
-                <Bullet />
-                <GradientTitle>{dockContent[focusedId].title}</GradientTitle>
-              </DockTitleRow>
-              <DockPara
-                dangerouslySetInnerHTML={{
-                  __html: dockContent[focusedId].body,
-                }}
-              />
-            </DockLeft>
-            <DockRight>
-              <ArrowImg src={asset("Arrow.svg")} alt="arrow" onClick={goNextFocus} />
-            </DockRight>
+            {focusedId && dockContent[focusedId] ? (
+              <>
+                <DockLeft>
+                  <DockTitleRow>
+                    <Bullet />
+                    <GradientTitle>
+                      {dockContent[focusedId].title}
+                    </GradientTitle>
+                  </DockTitleRow>
+                  <DockPara
+                    dangerouslySetInnerHTML={{
+                      __html: dockContent[focusedId].body,
+                    }}
+                  />
+                </DockLeft>
+                <DockRight>
+                  <ArrowImg
+                    src={asset("Arrow.svg")}
+                    alt="arrow"
+                    onClick={goNextFocus}
+                  />
+                </DockRight>
+              </>
+            ) : (
+              <DockRight>
+                <ArrowImg src={asset("Arrow.svg")} alt="arrow" onClick={goNextFocus} />
+              </DockRight>
+            )}
           </DockInner>
         </BottomDock>
+      )}
+      {!introActive && (
+        <LeftTitles>
+          <LeftTitleButton
+            $active={focusedId === "main"}
+            onClick={() => focusById.main()}
+          >
+            MAIN
+          </LeftTitleButton>
+          <LeftTitleButton
+            $active={focusedId === "chair"}
+            onClick={() => focusById.chair()}
+          >
+            SEAT
+          </LeftTitleButton>
+          <LeftTitleButton
+            $active={focusedId === "shell"}
+            onClick={() => focusById.shell()}
+          >
+            MODULE
+          </LeftTitleButton>
+          <LeftTitleButton
+            $active={focusedId === "wheel"}
+            onClick={() => focusById.wheel()}
+          >
+            BASE
+          </LeftTitleButton>
+        </LeftTitles>
       )}
       {!introActive && (
         <TopHeader>

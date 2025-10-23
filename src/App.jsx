@@ -935,7 +935,11 @@ function App() {
               focusCamera([6, 3, -2], [2, 0, 2], FOCUS_DUR);
             }}
           >
-            <Model url={asset("Stage_Shell.glb")} position={[0, 0, 0]} metallic />
+            <Model
+              url={asset("Stage_Shell.glb")}
+              position={[0, 0, 0]}
+              metallic
+            />
           </Hoverable>
 
           <Hoverable
@@ -951,7 +955,11 @@ function App() {
               focusCamera([-3, 0, -2.8], [0, 0, 0], FOCUS_DUR);
             }}
           >
-            <Model url={asset("Stage_Wheel.glb")} position={[0, 0, 0]} metallic />
+            <Model
+              url={asset("Stage_Wheel.glb")}
+              position={[0, 0, 0]}
+              metallic
+            />
           </Hoverable>
 
           {/* <Model url="/Stage_Studio.glb" position={[0, 0, 0]} /> */}
@@ -1087,7 +1095,11 @@ function App() {
               </>
             ) : (
               <DockRight>
-                <ArrowImg src={asset("Arrow.svg")} alt="arrow" onClick={goNextFocus} />
+                <ArrowImg
+                  src={asset("Arrow.svg")}
+                  alt="arrow"
+                  onClick={goNextFocus}
+                />
               </DockRight>
             )}
           </DockInner>
@@ -1125,7 +1137,11 @@ function App() {
         <TopHeader>
           <HeaderInner>
             <LeftGroup>
-              <LogoSmall src={asset("Text.svg")} alt="Logo" onClick={returnToIntro} />
+              <LogoSmall
+                src={asset("Text.svg")}
+                alt="Logo"
+                onClick={returnToIntro}
+              />
               <Sep>|</Sep>
               <Span>PBV Interior Design for Active Senior</Span>
               <Sep>|</Sep>
